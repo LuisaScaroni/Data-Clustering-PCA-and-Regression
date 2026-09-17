@@ -1,0 +1,428 @@
+---
+title: "G0O02a: Statistical Data Analysis: Project 2 - 2025/2026 Spring (Code)"
+author: "Luisa Scaroni"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,message = FALSE, warning = FALSE)
+```
+
+```{r}
+library(car)
+library(moments)
+library(robustHD)
+library(robustbase)
+library(mrfDepth)
+library(readxl)
+library(psych)
+library(corrplot)
+library(plot3D)
+library(MASS)
+library(Hmisc)
+library(rrcov)
+library(factoextra)
+library(dplyr)
+library(cluster)
+library(fossil)
+library(pheatmap)
+
+```
+
+# Loading Data and Setup
+
+```{r}
+set.seed(1085999) 
+sweetsdata <- read.csv("sweets_data.csv", stringsAsFactors = TRUE)
+
+# Select two product categories and sample 150 observations from each
+sample1 <- sample(which(sweetsdata$labels == "biscuits"), 150)
+sample2 <- sample(which(sweetsdata$labels == "cakes"), 150)
+mydatafull <- sweetsdata[c(sample1, sample2), ]
+
+# Separate features and labels for clustering
+X <- subset(mydatafull, select = -labels)
+y_labels <- factor(mydatafull$labels)
+```
+
+# Part 1: Cluster Analysis
+In this part, we examine whether standard nutritional values can naturally group the snacks. The goal is to cluster the nutritional variables (excluding labels). The labels may only be used afterwards to evaluate how well the clustering matches the product categories.
+## Question 1.1
+We start by loading the data and selecting the numerical variables. Then, if necessary, we scale the data before performing cluster analysis.
+We consider X and then study the scale of its variables. If they are too different, this means that we have to standardize/scale them:
+```{r}
+summary(X)
+```
+Now that we know that we have to scale the data, we can proceed as follows:
+```{r}
+standx=scale(X)
+```
+
+### Discussion:
+From the summary of X (the dataset without labels) we can see that the variables are on completely different scales. For example, "Na" has a median of 0.1100, while "energy_kcal" has a median of 445. Not scaling them would imply disregarding the variables with smaller values, as their effect would be insignificant compared to the larger ones.
+
+## Question 1.2
+We now calculate the dissimilarity matrix for the Euclidean and Manhattan distance:
+```{r}
+xdisseuc=daisy(standx, metric='euclidean', stand=FALSE)
+xdissman=daisy(standx, metric='manhattan', stand=FALSE)
+```
+We can visualize them through the heatmaps:
+```{r}
+pheatmap(as.matrix(xdisseuc), cluster_cols = FALSE, cluster_rows = FALSE, main='Heatmap Dissimilarity Euclidean')
+pheatmap(as.matrix(xdissman), cluster_rows = FALSE, cluster_cols = FALSE, main='Heatmap Dissimilarity Manhattan')
+```
+
+
+### Discussion:
+We can see a strong similarity in the patterns of the two heatmaps; indeed in terms of color distribution the two maps appear very similar. In addition, the blue blocks and orange ones are located in the same positions in both of them. Note that the blue areas represent highly similar snacks, while the orange/red areas indicate high dissimilarities, meaning they are quite different snacks. 
+Because of this, we can assume that the cluster structure is robust. This implies that the groupings among the various products are strong enough to emerge clearly regardless of the distance metric chosen.
+We can conclude that the only relevant difference between the two is their scale. If we look at the legend in the heatmap, we can see that the maximum distance for the Manhattan metric is 25, whereas the Euclidean one stops at approximately 11. This makes sense as it is a consequence of the behavior of the two metrics: the Manhattan distance sums absolute differences across all variables, while the Euclidean calculates the square root of the sum of squares, leading to smaller numerical values.
+
+## Question 1.3
+Now with the silhoutte method determine the optimal number of cluster K*. Then plot the silhoutte plot.
+```{r}
+fviz_nbclust(standx,method='silhouette', cluster::pam)
+
+```
+```{r}
+pams=pam(standx, k=2)
+fviz_silhouette(pams)
+```
+
+
+### Discussion:
+The ideal number of clusters is the one at which the silhouette function reaches its maximum. In this case, it is for K=2, therefore the optimal number of clusters for this dataset is determined to be K*=2.
+From the silhouette plot we can see an average silhouette width of 0.31. This low value suggests a weak or overlapping cluster structure within the nutritional data. 
+Furthermore,  the data reveal an imbalance between the two clusters. The first cluster with 244 observations is less cohesive, showing an average width of 0.28. We can also spot some negative silhouette values in this cluster, which implies that several observations might be poorly classified.
+In contrast, the second cluster with only 56 observations, exhibits a better shape. It is more compact and also its average silhouette width is higher being equal to 0.43.
+
+## Question 1.4
+Now we perform a K-medoids clustering and hierarchical clustering (with average linkage). Then compare them with Rand Index or contingency matrix.
+We start with K-medoids clustering:
+```{r}
+standxpam=pam(standx, k=2)
+colors.obs=c('pink', 'orange')
+plot(standx, col=colors.obs[standxpam$cluster], main='K-medoids')
+points(standxpam$medoids, col=colors.obs, cex=1.5)
+fviz_cluster(standxpam, data=standx, main = "K-medoids clustering")
+
+tabpam=table(True_labels=y_labels, PAM_cluster=standxpam$clustering )
+corrplot(as.matrix(tabpam), is.corr=FALSE, method='color', addCoef.col = 'black', tl.col='black', addgrid.col='grey', number.cex=1.5, cl.pos='n', col=COL1('YlGn'))
+```
+We now perform the hierarchical clustering:
+```{r}
+library(dendextend)
+xstandagnesaverage=agnes(standx, method='average')
+dend=as.dendrogram(xstandagnesaverage)
+dendk2=color_branches(dend, k=2, col=c('pink', 'blue') )
+plot(dendk2, main='Dendogram k=2')
+
+
+col13=c("blue", "green", 'salmon', "gold", "orange", "purple", 
+               "pink", "brown", "cyan", "magenta", "navy", "darkgreen", "tomato")
+xstandagnesaverage=agnes(standx, method='average')
+dend=as.dendrogram(xstandagnesaverage)
+dendk13=color_branches(dend, k=13, col=col13)
+plot(dendk13, main='Dendogram k=13')
+
+```
+```{r}
+hcclusters=cutree(xstandagnesaverage, k=2)
+```
+
+Now we compare the two methods first with a contingency table and then with Rand Index:
+```{r}
+table(standxpam$clustering, True_Labels=y_labels)
+table(hcclusters, True_labels=y_labels)
+rand.index(standxpam$clustering, as.numeric(y_labels))
+rand.index(hcclusters, as.numeric(y_labels))  
+```
+
+
+### Discussion:
+First, we can observe that the K-medoids(pam) method performs significantly better than the average linkage clustering in recovering the true product categories. Evidence of this is the rand index, indeed for pam is equal to 0.569, indicating a moderate agreement with the true label. Although it is not perfect, it shows that the algorithm identified successfully a structural pattern in data. For the hierarchical linkage the value is equal to 0.498, noting that in a dataset with two balanced categories a value of 0.5 is practically equivalent to random assignment.
+Then analyzing the contingency table, we can see that the pam method was able to identify two distinct groups. Specifically, Cluster 1 contains all 150 biscuits and 94 cakes, while cluster 2 consists only of the 56 remaining cakes. This suggests that pam is able to isolate a specific nutritional profile: Cluster 2 has higher water content and lower energy density while Cluster 1 drier and more dense calories snacks. In addition, we can also notice that biscuits are nutritionally homogeneous, while cakes are more varied.
+In contrast, the agnes method was not able to separate the categories with K=2. It placed almost every observation in Cluster 1, leaving only one observation in Cluster 2. This implies that this method is not suitable for the dataset as it suffers from sensitivity to outliers or a lack of clear separations between categories. To explain why this happened we plotted the dendrogram cut at an arbitrary higher number of clusters (K=13, note that this new value was chosen as a diagnostic tool and not as a new optimal K), seeing that this plots illustrates the chaining phenomenon. Indeed instead of forming balanced cluster, the average linkage sequentially isolates individual extreme outliers or micro-clusters, placing the majority of the data in one huge block.
+For these reasons, we can conclude that the hierarchical method is too sensitive to outliers and is affected by the chaining effect, while the K-medoids, since more robust, is the most appropriate method for the analysis.
+
+## Question 1.5
+Generate a heatmap with both observations and variable clustered. Then discuss whether specific clusters of snacks are related to high levels of particular nutrients.
+```{r}
+pheatmap(standx, clustering_distance_rows = 'euclidean',clustering_distance_cols = 'euclidean', method='average', show_rownames = FALSE, main='Heatmap of Observations and Variables')
+
+```
+
+
+### Discussion:
+We begin by studying the heatmap of observations and variables.
+The column dendrogram shows a strong positive correlation among specific nutrients. We can notice how "energy_kcal", "fat_total" and "fatty_acids_saturated" cluster together, implying that the caloric density of these snacks is highly driven by fat content. On the other hand, "carbohydrates_available" and "sugars" form another branch. Conversely, "water" and "Na" are isolated on the right side, this shows that moisture content behaves independently to the energy dense macronutrients.
+For the observations, we can identify two main clusters. The first one is characterized by high energy and low moisture. These snacks show warm colors for fats, energy and carbohydrates, while showing cool colors for water(noting that warm colors represent positive scaled values meanwhile cooler colors represent negative scaled values). In contrast, the second cluster is the one with high moisture and low energy, for these observations the water column is orange, while the energy and fat columns are blue.
+Finally, certain observations display red peaks for "dietary_fibres" and "Na". These are snacks with a unique nutritional composition that deviates from the two primary profiles.
+We can conclude that specific clusters of snacks are indeed related to high levels of particular nutrients.
+
+# Part 2: Multiple Linear Regression
+
+# Loading Data and Setup
+
+```{r}
+set.seed(1085999) # Replace it with your student number
+
+train_idx_biscuits <- sample(which(mydatafull$labels == "biscuits"), size = 100)
+train_idx_cakes <- sample(which(mydatafull$labels == "cakes"), size = 100)
+train_idx <- c(train_idx_biscuits, train_idx_cakes)
+
+mytrainingdata <- mydatafull[train_idx, ]
+myvalidationdata <- mydatafull[-train_idx, ]
+```
+
+## Question 2.1
+We start by performing an exploratory data analysis on mytrainingdata:
+```{r}
+dim(mytrainingdata)
+head(mytrainingdata)
+summary(mytrainingdata)
+```
+We now create some plots to have a better view:
+
+```{r}
+par(mfrow=c(2,4))
+for(i in 1:8){
+x=mytrainingdata[,i]
+hist(x, freq=FALSE,main=colnames(mytrainingdata)[i])
+mn=mean(x,na.rm=TRUE)
+std=sd(x, na.rm=TRUE)
+curve(dnorm(x,mean=mn,sd=std),col='red',lwd=2,add=TRUE)
+}
+```
+We now plot the pairs:
+```{r}
+pairs(mytrainingdata, pch=19)
+pairs.panels(mytrainingdata)
+```
+For the correlation we consider only the numeric ones:
+
+```{r}
+
+numtraining=mytrainingdata[,sapply(mytrainingdata, is.numeric)]
+
+mytrainingdatacor=cor(numtraining)
+
+corrplot.mixed(mytrainingdatacor, number.cex=0.8, lower.col='black')
+
+```
+
+```{r}
+par(mfrow=c(2,4))
+for(i in 1:8){
+qqnorm(mytrainingdata[,i],pch=19,main=colnames(mytrainingdata)[i])
+qqline(mytrainingdata[,i],col='red',lwd=2)
+}
+```
+
+We check the relationship between "energy_kcal" and the predictors.
+
+```{r}
+for (i in 1:8){
+print(skewness(mytrainingdata[,i]))
+}
+```
+I have to transform the variables with a skewness bigger than 1 or smaller than -1, so the second one, fifth one and eighth one.
+We now define them and try to find the best transformation to have a skewness closer to zero:
+```{r}
+water=mytrainingdata[,2]
+dietary=mytrainingdata[,5]
+Na=mytrainingdata[,8]
+```
+
+We start with the transformations for water: 
+```{r}
+sqrtwater=sqrt(water)
+skewness(sqrtwater)
+cubicwater=(water)^(1/3)
+skewness(cubicwater) 
+invwater=1/(water)
+skewness(invwater)
+logwater=log(water)
+skewness(logwater)
+boxcoxwater=boxCox(water~1,seq(0.1,1,0.1))
+lambda=boxcoxwater$x[which.max(boxcoxwater$y)]
+boxwater=bcPower(water, lambda)
+skewness(boxwater) #the best one->closest to 0 skewness
+                      
+```
+We now do the same with dietary:
+```{r}
+sqrtdiet=sqrt(dietary)
+skewness(sqrtdiet)
+cubicdiet=(dietary)^(1/3)
+skewness(cubicdiet) 
+boxcoxdiet=boxCox((0.1+dietary)~1,seq(-1,1,0.1))
+lambda=boxcoxdiet$x[which.max(boxcoxdiet$y)]
+boxdiet=bcPower((0.1+dietary), lambda)
+skewness(boxdiet) #the best one->closest to 0 skewness
+```
+We do the same with the Na:
+```{r}
+sqrtna=sqrt(Na)
+skewness(sqrtna) 
+cubicna=(Na)^(1/3)
+skewness(cubicna) 
+boxcoxna=boxCox((0.1+Na)~1,seq(-2,2,0.1))
+lambda=boxcoxna$x[which.max(boxcoxna$y)]
+boxna=bcPower((0.1+Na), lambda)
+skewness(boxna) 
+```
+
+With the boxplot we try to see if there are any outliers:
+```{r}
+par(mfrow=c(2,4))
+for (i in 1:8){
+  boxplot(mytrainingdata[,i], horizontal=FALSE)
+}
+```
+
+
+We check the normality with shapiro-wilk:
+```{r}
+for (i in 1:8){
+print(shapiro.test(mytrainingdata[,i]))
+}
+```
+Only one of the variable is normal.
+
+With mytrainingdatanew we create the new dataset with the transformed data:
+```{r}
+mytrainingdatanew=mytrainingdata
+mytrainingdatanew$water=boxwater
+mytrainingdatanew$dietary_fibres=boxdiet
+mytrainingdatanew$Na=boxna
+```
+
+
+
+### Discussion:
+We begin with an exploratory data analysis. First, the summary function reveals that the variables are measured on very different scales and most deviate from a normal distribution. Indeed, both the QQ-plots and the Shapiro-Wilk test indicate that the only normal distributed variable is "fat_total". Next, we examine the histograms, QQ-plots and skewness values to discover the direction of the skew. The histograms  of "water", "diatery_fibres" and "Na" indicate strong right skewness, this is confirmed by the skewness values which are all greater than 1. The boxplots also confirm the right-skewness, as they display long right tails and upper outliers. Conversely, "energy_kcal" histogram looks strongly left-skewed, a proof is the skewness value close to -1.
+We evaluated the best transformations for the variables with a skewness >1 or <-1 ("water", "dietary_fibres" and "Na"). We tested three types of transformations: square root, cubic and boxcox. For "water", we also tested inverse and logarithmic transformations but they were ineffective. 
+We chose the following transformations: \
+-"water": boxcox (new skewness=-0.08032888); \
+-"dietary_fibres": boxcox (new skewness=0.06835412); \
+-"Na": boxcox (new skewness=0.024); \
+Then, we analyzed the correlation matrix and pairs panels to check for linear relationships and multicollinearity. Regarding the target variable "energy_kcal", it is strongly negatively correlated with "water", while it shows a strong positive correlation with "fat_total" and "carbohydrates_available".
+Furthermore, we observed strong correlation among the predictors themselves, such as a negative correlation between "water" and "carbohydrates_available", and a strong positive correlation between "fat_total" and "acid_saturated".
+
+
+## Question 2.2
+Fit a full linear regression model using all available predictors. Report the coefficients and $R^2$. Is the overall model significant?
+
+```{r}
+linearfit=lm(energy_kcal~., data=mytrainingdatanew)
+summary(linearfit)
+
+```
+
+
+### Discussion:
+We start by examining the $R^2$ value, which is equal to 0.9958 (with an adjusted $R^2$ of 0.9957). This indicates an excellent goodness of fit meaning that the 99,58% of the variance in "energy_kcal" is explained by the predictors.
+Next, we look at the F-statistics, which is equal to 5701 on 8 and 191 degrees of freedom, yielding a p-value<2.2e-16 (well below the significance level of 0.05). We can conclude that the overall model is highly significant.
+We proceed with the coefficient analysis, we can see that macronutrients like "fat_total"(estimate=9.04), "carbohydrates_available"(estimate=3.64) and "dietary_fibres"(estimate=6.41) have strong positive coefficients. Furthermore, they are highly significant (p<0.001), which is expected since they are the primary drivers of the snack caloric density. Conversely, "water" has a strongly negative coefficient (-2.99), confirming that higher moisture decreases caloric density. Finally, it is worth noting that "Na" and "sugars" are not statistically significant in the full model(p>0.05).
+
+## Question 2.3
+Check for multicollinearity among the predictors using the Variance Inflation Factor. If VIF>10 suggest a strategy to handle it and re-fit a simplified model.
+```{r}
+library(DAAG)
+vifdata=DAAG::vif(linearfit)
+summary(linearfit)
+R=summary(linearfit)$r.squared
+vifdata
+R
+
+```
+
+### Discussion:
+We performed a multicollinearity check using the Variance Inflation Factor(VIF). As shown in the output, all the VIF values are below the critical threshold of 10 although the highest is "water" at 8.894 quite close to 10 but still smaller.
+Because no variable is larger than 10 there is no problematic multicollinearity in our mode. So we don't need to apply any mitigation strategy like dropping highly correlated variables or refit a simplified model.  
+Then, we also extract $R^2$ which is equal to 0.9958. This is a confirmation that our full model is able to explain successfully the 99.58% of the variance in the snacks' energy content.
+
+## Question 2.4
+Perform a model selection using forward selection based on AIC. Report the selected model and compare it with the full model using ANOVA test. Which variable are retained in the simplified model?
+
+```{r}
+lmfull=lm(energy_kcal ~ ., data=mytrainingdatanew)
+lminitial=lm(energy_kcal ~ 1, data=mytrainingdatanew)
+stepmodel=stepAIC(lminitial, scope=list(upper=lmfull, lower=lminitial) , direction='forward', trace=FALSE)
+anovacomp=anova(stepmodel, lmfull)
+print(anovacomp)
+summary(stepmodel)
+
+```
+
+
+### Discussion:
+We began the model selection via forward selection based on the AIC(Akaike Information Criterion).
+Starting with a null model, predictors were added sequentially to maximize the reduction in AIC. Ultimately, we retained seven variables: "water","fat_total", "carbohydrates_available", "dietary_fibres", "fatty_acids_saturated", "Na" and "labels".
+The variable "sugars" was excluded from the model. Indeed, adding "sugars" at the final step would have increased the AIC. This implies that it does not provide sufficient additional explanatory power to justify the increased model complexity.
+Then, we conducted a model comparison between the simplified model and the full one using an ANOVA test. We found an F-statistic of 0.288 and a p-value of 0.592. Since the p-value is greater than 0.05, there are no statistically significant differences in performance between the two models, confirming that the simplified model is preferable.
+
+## Question 2.5
+Perform a comprehensive residual analysis of the final model. Check for normality homoscedasticity, and independence errors. Identify any influential observations and discuss their potential impact.
+```{r}
+par(mfrow=c(2,2))
+plot(stepmodel)
+```
+
+```{r}
+shapiro.test(residuals(stepmodel))
+```
+```{r}
+ncvTest(stepmodel)
+```
+```{r}
+durbinWatsonTest(stepmodel)
+```
+
+We now check for outliers doing an outliers detection:
+```{r}
+modelstudres = studres(stepmodel)
+outliersy=which(abs(modelstudres)>qnorm(0.995))
+print(outliersy)
+```
+
+
+### Discussion:
+First, we evaluate the normality of the errors. The Shapiro-Wilk yields a p-value of 0.01799(<0.05), indicating a non-normal distribution. However, looking at the QQ-plot, the residuals align very tightly along the theoretical diagonal(with only small deviations at the extreme right tail). It is important to note that, given the relatively large sample size (n=200), the test is highly sensitive to minor tail fluctuations.
+Regarding homoscedasticity, the non-constant variance score test yields a p-value of 0.963, meaning we fail to reject the null hypothesis. This conclusion is supported by the Residuals vs Fitted and Scale Location plots: the points are randomly scattered and the smoothing lines remain nearly perfectly flat.
+Then through Durbin Watson we were able to show that residuals are independent, indeed since DW statistic is close to 2 and the p-value is larger than 0.05 we can accept the null hypothesis. So there is no first order autocorrelation and the residuals are independent, satisfying the assumption of the linear regression model.
+Finally, we can study the presence of outliers and influential points. To do so we calculated the studentized residuals and applied a threshold at qnorm(0.995). This found 8 anomalous observations (23,62,46,62,108,166,186, 197 and 296) which are the snacks whose energy content deviates from the model's prediction.
+It's important to notice that an outliers does not necessarily compromise the model unless it is highly influential. Indeed looking at the Residuals vs Leverage plot, we can see that these points (46,62 and 186) have low leverage values. As a consequence none of these cross the critical Cook's distance boundaries (usually 0.5). This means that although they have unusual caloric values compared to macronutrient profiles, they are not influential. In conclusion they don't distort the estimated regression coefficient and the model remains robust.
+
+
+## Question 2.6
+Estimate the prediction performance of your final model using myvalidationdata. Use RMSE test:
+```{r}
+lambdawater=boxcoxwater$x[which.max(boxcoxwater$y)]
+lambdadiet=boxcoxdiet$x[which.max(boxcoxdiet$y)]
+lambdana=boxcoxna$x[which.max(boxcoxna$y)]
+myvalidationdatanew=myvalidationdata
+myvalidationdatanew$water=bcPower(myvalidationdata$water, lambdawater)
+myvalidationdatanew$dietary_fibres=bcPower((0.1 + myvalidationdata$dietary_fibres), lambdadiet)
+myvalidationdatanew$Na=bcPower((0.1+myvalidationdata$Na), lambdana)
+```
+
+
+```{r}
+library(caret)
+library(lattice)
+pred=predict(stepmodel, newdata=myvalidationdatanew)
+nv=nrow(myvalidationdatanew)
+rmsepval=sqrt(mean((myvalidationdatanew$energy_kcal-pred)^2))
+print(rmsepval)
+#RMSE(myvalidationdatanew$energy_kcal,pred) another possible way to calculate it
+
+```
+
+
+### Discussion:
+After applying the necessary transformations to the validation set, we obtained a RMSE of 5.7. This means that, on average, the model's predictions deviate from the true energy content by only 5.71 kcal per 100g. Considering that the typical range of calories in these snacks is between 300 kcal and 500 kcal, this error is extremely low. Consequently, the model demonstrates excellent predictive performance and generalizes well to unseen data, showing no signs of overfitting. We can conclude that this high accuracy is expected; indeed, the caloric content of food is directly derived from its macronutrient composition.
