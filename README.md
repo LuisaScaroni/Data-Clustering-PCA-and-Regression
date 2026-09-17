@@ -3,15 +3,15 @@ This projects performs a statistical analysis of a nutritional dataset containin
 
 ## Methodology & Results:
 ### 1. EDA, Data Transformation and PCA
-*variable distribution and severe skewness
-*tested normality QQ-plot and shapiro-wilk
-*applied data transformations to mitigate non-normality and skewness
-*performed both classical and robust PCA
+* variable distribution and severe skewness
+* tested normality QQ-plot and shapiro-wilk
+* applied data transformations to mitigate non-normality and skewness
+* performed both classical and robust PCA
 ### 2. Clustering and Multiple Linear Regression
-*cluster tendency using Euclidean and Manhattan dissimilarity matrices, then compared PAM and AGNES
-*built a multiple linear regression model to predict energy content
-*checked for multicollinearity using VIF
-*performed model selection via Forward Selection based on AIC
+* cluster tendency using Euclidean and Manhattan dissimilarity matrices, then compared PAM and AGNES
+* built a multiple linear regression model to predict energy content
+* checked for multicollinearity using VIF
+* performed model selection via Forward Selection based on AIC
 
 ## Tools:
 * **Language:** R
